@@ -1,2 +1,2 @@
-influxdb-last-as-json: main.go
+influxdb-query-as-json: main.go
 	go build

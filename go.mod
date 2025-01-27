@@ -1,4 +1,4 @@
-module influxdb-last-as-json
+module influxdb-query-as-json
 
 go 1.23.5
 

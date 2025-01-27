@@ -12,48 +12,52 @@ import (
 
 func main() {
 	var opts struct {
-		Bucket      string `long:"bucket"      short:"b" description:"TODO" required:"true"`
-		Url         string `long:"url"         short:"u" description:"TODO" required:"true"`
-		Org         string `long:"org"         short:"o" description:"TODO" required:"true"`
-		Token       string `long:"token"       short:"t" description:"TODO" required:"true"`
-		Measurement string `long:"measurement" short:"m" description:"TODO" required:"true"`
+		Url   string `long:"url"   short:"u" description:"URL that InfluxDB is bound to" required:"true"`
+		Org   string `long:"org"   short:"o" description:"Organization name"             required:"true"`
+		Token string `long:"token" short:"t" description:"Access token"                  required:"true"`
+		File  string `long:"file"  short:"f" description:"Query file, '-' means stdin"   required:"true"`
 	}
 	_, err := flags.Parse(&opts)
 	if err != nil {
 		os.Exit(1)
 	}
 
-	query := fmt.Sprintf(`
-from(bucket: "%s")
-  |> range(start: 0)
-  |> last()
-  |> filter(fn: (r) => r["_measurement"] == "%s")
-`, opts.Bucket, opts.Measurement)
+	var file string
+	if opts.File == "-" {
+		file = "/dev/stdin"
+	} else {
+		file = opts.File
+	}
+	query, err := os.ReadFile(file)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Failed to read query: %s\n", err)
+		os.Exit(1)
+	}
 
 	client := influxdb2.NewClient(opts.Url, opts.Token)
 	defer client.Close()
 
 	queryAPI := client.QueryAPI(opts.Org)
 
-	data := map[string]interface{}{}
-
-	result, err := queryAPI.Query(context.Background(), query)
+	result, err := queryAPI.Query(context.Background(), string(query))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: Database query failed: %s\n", err)
 		os.Exit(1)
 	}
 
 	for result.Next() {
-		data[result.Record().Field()] = result.Record().Value()
-		data["_time"] = result.Record().Time().UnixNano()
+		values := result.Record().Values()
+		delete(values, "table")
+		delete(values, "result")
+
+		jsonData, err := json.Marshal(values)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR: JSON formatting failed: %s\n", err)
+		}
+		fmt.Printf("%s\n", jsonData)
 	}
 	if result.Err() != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: Query parsing error: %s\n", result.Err().Error())
+		os.Exit(1)
 	}
-
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: JSON formatting failed: %s\n", err)
-	}
-	fmt.Printf("%s\n", jsonData)
 }
